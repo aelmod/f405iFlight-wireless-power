@@ -52,6 +52,13 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for UsbResponseTask */
+osThreadId_t UsbResponseTaskHandle;
+const osThreadAttr_t UsbResponseTask_attributes = {
+  .name = "UsbResponseTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -62,6 +69,7 @@ static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM8_Init(void);
 void StartDefaultTask(void *argument);
+void StartUsbResponseTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 
@@ -70,6 +78,7 @@ void StartDefaultTask(void *argument);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 extern uint8_t buffer[64];
+static char responseBuffer[32];
 /* USER CODE END 0 */
 
 /**
@@ -115,7 +124,6 @@ int main(void)
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_3);
 	HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_4);
 
-    static char responseBuffer[32];
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -141,6 +149,9 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
+  /* creation of UsbResponseTask */
+  UsbResponseTaskHandle = osThreadNew(StartUsbResponseTask, NULL, &UsbResponseTask_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -160,42 +171,6 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-      if (strcmp(buffer, "boot_dfu") == 0) {
-          snprintf(responseBuffer, sizeof(responseBuffer), "%s", "Boot into DFU");
-          CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
-          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-          HAL_Delay(100);
-          machine_bootloader();
-      }
-
-      if (strcmp(buffer, "pwm_info") == 0) {
-          static char buffDuty[4];
-          static char buffFreq[4];
-          sprintf((char *)buffDuty, "duty: %.2g%%\n", ((double)TIM8->CCR2/TIM8->ARR)*100);
-          sprintf((char *) buffFreq, "freq: %gKHz\n", (double) (HAL_RCC_GetPCLK2Freq() * 2) / ((TIM8->ARR + 1) * TIM8->PSC)/1000);
-          snprintf(responseBuffer, sizeof(responseBuffer), "%s%s", buffDuty, buffFreq);
-          CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
-          memset(buffer, '\0', sizeof(char) * sizeof(buffer));
-      }
-
-      if (strcmp(buffer, "led_on") == 0) {
-          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
-          snprintf(responseBuffer, sizeof(responseBuffer), "%s", "LED on");
-          CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
-          memset(buffer, '\0', sizeof(char) * sizeof(buffer));
-      }
-      if (strcmp(buffer, "led_off") == 0) {
-          HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
-          snprintf(responseBuffer, sizeof(responseBuffer), "%s", "LED on");
-          CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
-          memset(buffer, '\0', sizeof(char) * sizeof(buffer));
-      }
-
-//	  HAL_Delay(1000);
-
-//      TIM2->ARR = 100;
-//      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_3, 15);
-//      __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_4, 15);
   }
   /* USER CODE END 3 */
 }
@@ -432,6 +407,53 @@ void StartDefaultTask(void *argument)
     osDelay(1);
   }
   /* USER CODE END 5 */
+}
+
+/* USER CODE BEGIN Header_StartUsbResponseTask */
+/**
+* @brief Function implementing the UsbResponseTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_StartUsbResponseTask */
+void StartUsbResponseTask(void *argument)
+{
+  /* USER CODE BEGIN StartUsbResponseTask */
+  /* Infinite loop */
+  for(;;)
+  {
+    if (strcmp(buffer, "boot_dfu") == 0) {
+      snprintf(responseBuffer, sizeof(responseBuffer), "%s", "Boot into DFU");
+      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+      HAL_Delay(100);
+      machine_bootloader();
+    }
+
+    if (strcmp(buffer, "pwm_info") == 0) {
+      static char buffDuty[4];
+      static char buffFreq[4];
+      sprintf((char *)buffDuty, "duty: %.2g%%\n", ((double)TIM8->CCR2/TIM8->ARR)*100);
+      sprintf((char *) buffFreq, "freq: %gKHz\n", (double) (HAL_RCC_GetPCLK2Freq() * 2) / ((TIM8->ARR + 1) * TIM8->PSC)/1000);
+      snprintf(responseBuffer, sizeof(responseBuffer), "%s%s", buffDuty, buffFreq);
+      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+    }
+
+    if (strcmp(buffer, "led_on") == 0) {
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
+      snprintf(responseBuffer, sizeof(responseBuffer), "%s", "LED on");
+      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+    }
+    if (strcmp(buffer, "led_off") == 0) {
+      HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+      snprintf(responseBuffer, sizeof(responseBuffer), "%s", "led_off");
+      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+    }
+  }
+  /* USER CODE END StartUsbResponseTask */
 }
 
 /**
