@@ -265,7 +265,7 @@ static void MX_TIM2_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 1;
+  sConfigOC.Pulse = 50;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
   if (HAL_TIM_PWM_ConfigChannel(&htim2, &sConfigOC, TIM_CHANNEL_3) != HAL_OK)
@@ -304,7 +304,7 @@ static void MX_TIM8_Init(void)
 
   /* USER CODE END TIM8_Init 1 */
   htim8.Instance = TIM8;
-  htim8.Init.Prescaler = 64-1;
+  htim8.Init.Prescaler = 0;
   htim8.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim8.Init.Period = 1000;
   htim8.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -330,7 +330,7 @@ static void MX_TIM8_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 500;
+  sConfigOC.Pulse = 50;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -343,7 +343,7 @@ static void MX_TIM8_Init(void)
   sBreakDeadTimeConfig.OffStateRunMode = TIM_OSSR_DISABLE;
   sBreakDeadTimeConfig.OffStateIDLEMode = TIM_OSSI_DISABLE;
   sBreakDeadTimeConfig.LockLevel = TIM_LOCKLEVEL_OFF;
-  sBreakDeadTimeConfig.DeadTime = 255;
+  sBreakDeadTimeConfig.DeadTime = 13;
   sBreakDeadTimeConfig.BreakState = TIM_BREAK_DISABLE;
   sBreakDeadTimeConfig.BreakPolarity = TIM_BREAKPOLARITY_HIGH;
   sBreakDeadTimeConfig.AutomaticOutput = TIM_AUTOMATICOUTPUT_DISABLE;
@@ -386,7 +386,10 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
-
+int prefix(const char *pre, const char *str)
+{
+    return strncmp(pre, str, strlen(pre)) == 0;
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_StartDefaultTask */
@@ -422,35 +425,82 @@ void StartUsbResponseTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-    if (strcmp(buffer, "boot_dfu") == 0) {
+    if (strcmp(buffer, "boot_dfu") == 0)
+    {
       snprintf(responseBuffer, sizeof(responseBuffer), "%s", "Boot into DFU");
-      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
       HAL_Delay(100);
       machine_bootloader();
     }
 
-    if (strcmp(buffer, "pwm_info") == 0) {
-      static char buffDuty[4];
-      static char buffFreq[4];
-      sprintf((char *)buffDuty, "duty: %.2g%%\n", ((double)TIM8->CCR2/TIM8->ARR)*100);
-      sprintf((char *) buffFreq, "freq: %gKHz\n", (double) (HAL_RCC_GetPCLK2Freq() * 2) / ((TIM8->ARR + 1) * TIM8->PSC)/1000);
+    if (strcmp(buffer, "pwm_info") == 0)
+    {
+      static char buffDuty[16];
+      static char buffFreq[16];
+      memset(buffDuty, '\0', sizeof(char) * sizeof(buffDuty));
+      memset(buffFreq, '\0', sizeof(char) * sizeof(buffFreq));
+
+      sprintf((char *) buffDuty, "duty: %.2g%%\n", ((double) TIM8->CCR2 / TIM8->ARR) * 100);
+      sprintf((char *) buffFreq, "freq: %gKHz\n", (double) (HAL_RCC_GetPCLK2Freq() * 2) / ((TIM8->ARR + 1) * TIM8->PSC) / 1000);
       snprintf(responseBuffer, sizeof(responseBuffer), "%s%s", buffDuty, buffFreq);
-      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
       memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
     }
 
-    if (strcmp(buffer, "led_on") == 0) {
+    if (strcmp(buffer, "led_on") == 0)
+    {
       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_RESET);
       snprintf(responseBuffer, sizeof(responseBuffer), "%s", "LED on");
-      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
       memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
     }
-    if (strcmp(buffer, "led_off") == 0) {
+    if (strcmp(buffer, "led_off") == 0)
+    {
       HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
       snprintf(responseBuffer, sizeof(responseBuffer), "%s", "led_off");
-      CDC_Transmit_FS((uint8_t *)responseBuffer, strlen(responseBuffer));
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
       memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
+    }
+    if (strcmp(buffer, "dti") == 0)
+    {
+      snprintf(responseBuffer, sizeof(responseBuffer), "BDTR :%lu", TIM8->BDTR);
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
+    }
+
+    if (prefix("d ", buffer))
+    {
+      float duty = (float) (atoi(buffer + 2) + 2) / 100;
+      __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, duty * TIM8->ARR);
+
+      snprintf(responseBuffer, sizeof(responseBuffer), "duty: %.2g%%\n", ((double) TIM8->CCR2 / TIM8->ARR) * 100);
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
+    }
+    if (prefix("f ", buffer))
+    {
+      int frequecy = atoi(buffer + 2);
+      TIM8->ARR = frequecy;
+      snprintf(responseBuffer, sizeof(responseBuffer), "%s %d", "frequecy:", frequecy);
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
+    }
+    if (prefix("dt ", buffer))
+    {
+      int deadtime = atoi(buffer + 3);
+      TIM8->BDTR = 40960 + deadtime;
+//      TIM8->BDTR = deadtime;
+      snprintf(responseBuffer, sizeof(responseBuffer), "%s %lu", "deadtime:", TIM8->BDTR - 40960);
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
     }
   }
   /* USER CODE END StartUsbResponseTask */
