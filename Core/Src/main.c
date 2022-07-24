@@ -25,6 +25,7 @@
 /* USER CODE BEGIN Includes */
 #include "usbd_cdc_if.h"
 #include "drv_reset.h"
+#include "w25qxx.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -34,6 +35,9 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define DUTY_FLESH_OFFSET 0
+#define FREQUENCY_FLESH_OFFSET 4
+#define DEADTIME_FLESH_OFFSET 8
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -42,6 +46,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+SPI_HandleTypeDef hspi3;
+
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim8;
 
@@ -68,6 +74,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM8_Init(void);
+static void MX_SPI3_Init(void);
 void StartDefaultTask(void *argument);
 void StartUsbResponseTask(void *argument);
 
@@ -78,7 +85,8 @@ void StartUsbResponseTask(void *argument);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 extern uint8_t buffer[64];
-static char responseBuffer[32];
+static uint8_t responseBuffer[32];
+static uint8_t fleshBuffer[4];
 /* USER CODE END 0 */
 
 /**
@@ -111,6 +119,7 @@ int main(void)
   MX_GPIO_Init();
   MX_TIM2_Init();
   MX_TIM8_Init();
+  MX_SPI3_Init();
   /* USER CODE BEGIN 2 */
 
 //  HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
@@ -218,6 +227,44 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief SPI3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_SPI3_Init(void)
+{
+
+  /* USER CODE BEGIN SPI3_Init 0 */
+
+  /* USER CODE END SPI3_Init 0 */
+
+  /* USER CODE BEGIN SPI3_Init 1 */
+
+  /* USER CODE END SPI3_Init 1 */
+  /* SPI3 parameter configuration*/
+  hspi3.Instance = SPI3;
+  hspi3.Init.Mode = SPI_MODE_MASTER;
+  hspi3.Init.Direction = SPI_DIRECTION_2LINES;
+  hspi3.Init.DataSize = SPI_DATASIZE_8BIT;
+  hspi3.Init.CLKPolarity = SPI_POLARITY_LOW;
+  hspi3.Init.CLKPhase = SPI_PHASE_1EDGE;
+  hspi3.Init.NSS = SPI_NSS_SOFT;
+  hspi3.Init.BaudRatePrescaler = SPI_BAUDRATEPRESCALER_2;
+  hspi3.Init.FirstBit = SPI_FIRSTBIT_MSB;
+  hspi3.Init.TIMode = SPI_TIMODE_DISABLE;
+  hspi3.Init.CRCCalculation = SPI_CRCCALCULATION_DISABLE;
+  hspi3.Init.CRCPolynomial = 10;
+  if (HAL_SPI_Init(&hspi3) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SPI3_Init 2 */
+
+  /* USER CODE END SPI3_Init 2 */
+
 }
 
 /**
@@ -330,7 +377,7 @@ static void MX_TIM8_Init(void)
     Error_Handler();
   }
   sConfigOC.OCMode = TIM_OCMODE_PWM1;
-  sConfigOC.Pulse = 50;
+  sConfigOC.Pulse = 500;
   sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
   sConfigOC.OCNPolarity = TIM_OCNPOLARITY_HIGH;
   sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
@@ -374,7 +421,17 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_15, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
+
+  /*Configure GPIO pin : PA15 */
+  GPIO_InitStruct.Pin = GPIO_PIN_15;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
   /*Configure GPIO pin : PB5 */
   GPIO_InitStruct.Pin = GPIO_PIN_5;
@@ -422,6 +479,19 @@ void StartDefaultTask(void *argument)
 void StartUsbResponseTask(void *argument)
 {
   /* USER CODE BEGIN StartUsbResponseTask */
+  W25qxx_Init();
+  memset(fleshBuffer, '\0', sizeof(uint8_t) * sizeof(fleshBuffer));
+
+//  W25qxx_ReadBlock(fleshBuffer, 0, DUTY_FLESH_OFFSET, 4);
+//  if ((!fleshBuffer[0]) != 0) {
+//    snprintf(fleshBuffer, sizeof fleshBuffer, "%f", 50.0f * TIM8->ARR);
+//    W25qxx_WriteBlock(fleshBuffer, 0, DUTY_FLESH_OFFSET, 4);
+//  } else {
+//    __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, *(uint8_t*)fleshBuffer * TIM8->ARR);
+//  }
+
+//  FREQUENCY_FLESH_OFFSET
+//  DEADTIME_FLESH_OFFSET
   /* Infinite loop */
   for(;;)
   {
@@ -438,8 +508,6 @@ void StartUsbResponseTask(void *argument)
     {
       static char buffDuty[16];
       static char buffFreq[16];
-      memset(buffDuty, '\0', sizeof(char) * sizeof(buffDuty));
-      memset(buffFreq, '\0', sizeof(char) * sizeof(buffFreq));
 
       sprintf((char *) buffDuty, "duty: %.2g%%\n", ((double) TIM8->CCR2 / TIM8->ARR) * 100);
       sprintf((char *) buffFreq, "freq: %gKHz\n", (double) (HAL_RCC_GetPCLK2Freq() * 2) / ((TIM8->ARR + 1) * TIM8->PSC) / 1000);
@@ -472,11 +540,39 @@ void StartUsbResponseTask(void *argument)
       memset(buffer, '\0', sizeof(char) * sizeof(buffer));
       continue;
     }
+    if (strcmp(buffer, "flesh_test") == 0)
+    {
+      W25qxx_ReadBlock(fleshBuffer, 0, DUTY_FLESH_OFFSET, 4);
+      if (fleshBuffer && !fleshBuffer[0]) {
+        snprintf(fleshBuffer, sizeof fleshBuffer, "%f", 50.0f * TIM8->ARR);
+        W25qxx_WriteBlock(fleshBuffer, 0, DUTY_FLESH_OFFSET, 4);
+      } else {
+        __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, atoff(&fleshBuffer) * TIM8->ARR);
+      }
+//      W25qxx_EraseBlock(0);
+//      W25qxx_WriteBlock(fleshBuffer, 0, 0, 4);
+//      memset(responseBuffer, '\0', sizeof(char) * sizeof(responseBuffer));
+//      W25qxx_ReadBlock(responseBuffer, 0, 0, 4);
+      CDC_Transmit_FS((uint8_t *) fleshBuffer, strlen(fleshBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
+    }
+    if (strcmp(buffer, "size_test") == 0)
+    {
+      W25qxx_EraseChip();
+      sprintf((char *) responseBuffer, "int: %d, float %d\n", sizeof (int), sizeof (float));
+      CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
+      memset(buffer, '\0', sizeof(char) * sizeof(buffer));
+      continue;
+    }
 
     if (prefix("d ", buffer))
     {
       float duty = (float) (atoi(buffer + 2) + 2) / 100;
       __HAL_TIM_SET_COMPARE(&htim8, TIM_CHANNEL_2, duty * TIM8->ARR);
+
+      snprintf(fleshBuffer, sizeof fleshBuffer, "%f", duty);
+      W25qxx_WriteBlock(fleshBuffer, 0, DUTY_FLESH_OFFSET, 4);
 
       snprintf(responseBuffer, sizeof(responseBuffer), "duty: %.2g%%\n", ((double) TIM8->CCR2 / TIM8->ARR) * 100);
       CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
@@ -487,6 +583,10 @@ void StartUsbResponseTask(void *argument)
     {
       int frequecy = atoi(buffer + 2);
       TIM8->ARR = frequecy;
+
+      snprintf(fleshBuffer, sizeof fleshBuffer, "%d", frequecy);
+      W25qxx_WriteBlock(fleshBuffer, 0, FREQUENCY_FLESH_OFFSET, 4);
+
       snprintf(responseBuffer, sizeof(responseBuffer), "%s %d", "frequecy:", frequecy);
       CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
       memset(buffer, '\0', sizeof(char) * sizeof(buffer));
@@ -496,7 +596,10 @@ void StartUsbResponseTask(void *argument)
     {
       int deadtime = atoi(buffer + 3);
       TIM8->BDTR = 40960 + deadtime;
-//      TIM8->BDTR = deadtime;
+
+      snprintf(fleshBuffer, sizeof fleshBuffer, "%d", deadtime);
+      W25qxx_WriteBlock(fleshBuffer, 0, DEADTIME_FLESH_OFFSET, 4);
+
       snprintf(responseBuffer, sizeof(responseBuffer), "%s %lu", "deadtime:", TIM8->BDTR - 40960);
       CDC_Transmit_FS((uint8_t *) responseBuffer, strlen(responseBuffer));
       memset(buffer, '\0', sizeof(char) * sizeof(buffer));
